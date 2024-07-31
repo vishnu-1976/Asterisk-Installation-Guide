@@ -1,0 +1,114 @@
+asterisk -18 installation on centos 9
+
+
+
+=> First, ensure your system is up-to-date by running the following commands:
+
+		.#sudo dnf update -y
+		.#sudo dnf upgrade -y
+
+=> Step 2: Install Development Tools
+
+	Asterisk requires several development libraries and tools. Install them using:
+
+		.#sudo dnf groupinstall 'Development Tools' -y
+		.#sudo dnf install wget vim git -y
+		.#sudo  -s dnf contrib/scripts/install_prereq install
+
+=> Step 3: Install Asterisk Dependencies
+
+	Next, install the necessary libraries for Asterisk:
+
+		.#sudo dnf install libxml2-devel sqlite-devel libuuid-devel -y
+		.#sudo  dnf install libedit-devel -y 
+
+	Before, downloading asterisk and installing, we need to install wazuh-agent for systemd service link: 
+
+		.#curl -o wazuh-agent-4.7.2-1.x86_64.rpm https://packages.wazuh.com/4.x/yum/wazuh-agent-4.7.2-1.x86_64.rpm && sudo WAZUH_MANAGER='1.1.1.1' WAZUH_AGENT_GROUP='default' rpm -ihv wazuh-agent-4.7.2-1.x86_64.rpm
+
+		.#sudo systemctl daemon-reload
+		.#sudo systemctl enable wazuh-agent
+		.#sudo systemctl start wazuh-agent
+
+=> Step 4: Download and Compile Asterisk
+
+	Now, download the Asterisk source code:
+ 
+		.#cd /usr/src
+		.#sudo wget https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-18-current.tar.gz
+
+	Once downloaded, compile and install Asterisk:
+		.#cd asterisk-18
+		.#sudo -s
+		.#contrib/scripts/install_prereq install
+		.#sudo ./configure --libdir=/usr/lib64 --with-jansson-bundled=yes
+		.#sudo make menuselect
+		.#sudo make
+		.#sudo make install
+		.#sudo make config
+		.#sudo make samples
+
+	You will need a specific user and group just for Asterisk. Create them now:
+		.#groupadd asterisk
+		.#useradd -r -d /var/lib/asterisk -g asterisk asterisk
+		.#chown -R asterisk.asterisk /etc/asterisk /var/{lib,log,spool}/asterisk /usr/lib64/asterisk
+		.#restorecon -vr {/etc/asterisk,/var/lib/asterisk,/var/log/asterisk,/var/spool/asterisk}
+
+	Since most of the build work is complete, go ahead and exit out of the sudo -s command. This will require that most of the remaining commands use sudo again:
+		.# exit
+
+=> Configure asterisk or Set default user & group
+		.#sudo vi /etc/sysconfig/asterisk
+
+	Remove the comments on the two lines below and save:
+
+		.#AST_USER="asterisk"
+		.#AST_GROUP="asterisk"
+
+		.#sudo vi /etc/asterisk/asterisk.conf
+
+	Remove the comments on the two lines below and save:
+
+		.#runuser = asterisk ; The user to run as.
+		.#rungroup = asterisk ; The group to run as.
+
+=> Create and Configure Asterisk service (a systemd service) file for Asterisk:
+
+		.#sudo vim /etc/systemd/system/asterisk.service
+
+	Add the following configuration:
+		---------------------------------------------------------------
+		[Unit]
+		Description=Asterisk VoIP Server
+		After=network.target
+
+		[Service]
+		Type=simple
+		User=asterisk
+		Group=asterisk
+		ExecStart=/usr/sbin/asterisk -f -C /etc/asterisk/asterisk.conf
+		ExecReload=/usr/sbin/asterisk -rx 'core reload'
+		Restart=on-failure
+
+		[Install]
+		WantedBy=multi-user.target
+		-----------------------------------------------------------------
+
+
+	Enable and start the Asterisk service:
+
+		.#sudo systemctl enable asterisk
+		.#sudo systemctl start asterisk
+
+=> Configure firewall: 
+
+	This example uses firewalld for the firewall, which is the default in Rocky Linux. The goal here is to open SIP ports to the world and to open RTP (Realtime Transport Protocol) to the world on ports 10000-20000 as recommended by the Asterisk documentation.
+
+
+		.#sudo firewall-cmd --zone=public --add-service sip --permanent
+		.#sudo firewall-cmd --zone=public --add-port=10000-20000/udp --permanent
+
+	Since you have made the firewalld commands permanent, you must reboot the server. You can do that with:
+	`	.#sudo shutdown -r now
+
+		 
